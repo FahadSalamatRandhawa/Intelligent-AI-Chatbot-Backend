@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "ai-chatbot"
+version = "0.1.0"
+description = ""
+authors = ["fahadsalamatrandhawa <dreamtwister61814@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+uvicorn = "^0.32.0"
+fastapi = "^0.115.5"
+pydantic = "^2.9.2"
+python-multipart = "^0.0.17"
+langchain-openai = "^0.2.8"
+langchain = "^0.3.7"
+pymongo = {extras = ["srv"], version = "^4.10.1"}
+langchain-community = "^0.3.7"
+pdfplumber = "^0.11.4"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

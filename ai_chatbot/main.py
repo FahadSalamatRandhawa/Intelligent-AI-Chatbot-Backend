@@ -1,0 +1,353 @@
+import os
+from fastapi import FastAPI, UploadFile, File, HTTPException,Request
+from pymongo import MongoClient
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.embeddings.openai import OpenAIEmbeddings
+from io import BytesIO
+import pdfplumber
+from langchain.vectorstores import VectorStore
+from langchain_community.vectorstores import MongoDBAtlasVectorSearch
+
+
+from dotenv import find_dotenv,load_dotenv
+from ai_chatbot.Model__OpenAI import OpenAIModel
+
+from datetime import datetime
+from typing import List, Dict
+
+# Initialize FastAPI app
+app = FastAPI()
+
+
+_:bool=load_dotenv(find_dotenv())
+
+# Initialize OpenAI Embeddings through LangChain
+openai_api_key = os.getenv("OPENAI_API_KEY")
+embeddings_model = OpenAIEmbeddings(openai_api_key=openai_api_key)
+
+# Initialize MongoDB client
+client = MongoClient(os.getenv("MONGO_DB_URL"))
+db = client.rag_database
+
+# --------------------------------------- AI Model Endpoints -------------------------------- #
+from pydantic import BaseModel
+class ModelItem(BaseModel):
+    name: str
+    id: str
+
+@app.get("/models/available")
+async def list_available_models():
+    db = client.rag_database
+    collection = db['ai_models']
+    
+    # Fetch the document containing available models
+    document = collection.find_one({}, {"available_models": 1})
+    
+    if not document:
+        raise HTTPException(status_code=404, detail="No models found in the collection")
+    
+    # Return the available models list
+    available_models = document.get("available_models", [])
+    return {"available_models": available_models}
+
+
+import openai
+
+# Initialize OpenAI API key
+openai.api_key = openai_api_key
+
+@app.post("/models/add")
+async def add_model(model: ModelItem):
+    # Initialize MongoDB client
+    db = client.rag_database
+    collection = db['ai_models']
+
+    # Check if the model ID already exists in the available_models array
+    existing_model = collection.find_one({"available_models.id": model.id})
+    
+    if existing_model:
+        raise HTTPException(status_code=400, detail="Model ID already exists in the available models")
+
+    try:
+        # Get the list of models from OpenAI
+        openai_models = openai.models.list()
+
+        model_ids = [m.id for m in openai_models.data]  # List of model IDs available in OpenAI
+
+        # Check if the provided model ID exists in OpenAI
+        if model.id not in model_ids:
+            raise HTTPException(status_code=400, detail="Invalid model ID: Not found in OpenAI")
+
+    except openai.NotFoundError as e:
+        # Handle OpenAI API errors (e.g., invalid API key, rate limiting, etc.)
+        raise HTTPException(status_code=500, detail=f"Error communicating with OpenAI API: {str(e)}")
+
+    # If model doesn't exist, add it to the collection
+    collection.update_one(
+        {},
+        {
+            "$addToSet": {"available_models": model.dict()},
+            "$set": {"updated_at": datetime.utcnow()},
+        },
+        upsert=True
+    )
+    
+    return {"message": "Model added successfully"}
+
+
+@app.delete("/models/remove")
+async def remove_model(model_id: str):
+    db = client.rag_database
+    collection = db['ai_models']
+    
+    # Find the current document and check if the model_id matches the default model
+    document = collection.find_one({}, {"default_model": 1})
+    if not document:
+        raise HTTPException(status_code=404, detail="No models found in the collection")
+    
+    if document.get("default_model") == model_id:
+        raise HTTPException(status_code=400, detail="Cannot remove the default model")
+
+    # Attempt to remove the model from the available_models array
+    result = collection.update_one(
+        {},
+        {
+            "$pull": {"available_models": {"id": model_id}}
+        }
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Model not found or not removed")
+
+    return {"message": "Model removed successfully"}
+
+
+@app.put("/models/set_default")
+async def set_default_model(model_id: str):
+    model_id = model_id.strip()  # Strip any whitespace for a cleaner match
+
+    db = client.rag_database
+    collection=db['ai_models']
+
+    # Check if the model exists in the `available_models` array
+    model_exists = collection.find_one({"available_models.id": model_id})
+    
+    if not model_exists:
+        raise HTTPException(status_code=404, detail="Model ID not found in available models")
+    
+    # Update the default model and timestamp
+    collection.update_one(
+        {},
+        {
+            "$set": {
+                "default_model": model_id,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    return {"message": f"Default model set to {model_id}"}
+
+
+# ---------------------------- Chat Endpoint ---------------------------#
+
+# Collection for RAG documents
+collection = db.document_vectors
+@app.post("/chat/")
+async def chat_with_context(messages: List[dict[str,str]]):
+    try:
+        # Access AI Models collection
+        collection = db['ai_models']
+
+        # Get the default model from the database
+        ai_model_data = collection.find_one({}, {"default_model": 1, "available_models": 1})
+        if not ai_model_data:
+            raise HTTPException(status_code=404, detail="No default model found")
+
+        # Get the default model ID from the db
+        default_model_id = ai_model_data.get("default_model")
+        if not default_model_id:
+            raise HTTPException(status_code=404, detail="No default model ID set in the database")
+        
+        # Extra security step
+
+        # # Check if the default model ID exists in available models
+        # available_models = ai_model_data.get("available_models", [])
+        # model_ids = [model['id'] for model in available_models]
+        # if default_model_id not in model_ids:
+        #     raise HTTPException(status_code=404, detail="Default model ID not found in available models")
+
+        # Use the default model ID to initialize the chat model
+        chat_model = OpenAIModel(model=default_model_id)
+
+        # Get the content of the last message
+        query = messages[-1].get('content')
+        if not query:
+            raise HTTPException(status_code=400, detail="Message is required")
+
+        # Create the VectorStore interface for MongoDB, pass appropriate collection name
+        vector_search = MongoDBAtlasVectorSearch(
+            collection=db['document_vectors'],
+            embedding=embeddings_model,
+            index_name="vector_search_index"
+        )
+
+        # Perform similarity search
+        results=vector_search.similarity_search(query=query,k=6)
+        context=""
+        for result in results:
+            context+=result.page_content
+
+        chat_messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are an assistant designed to answer questions with concise, informative responses. "
+                    "Use the following conversation history to inform your responses. "
+                    "When providing answers, make sure to incorporate previous messages and context from the conversation. "
+                    "If you're unsure of the answer, simply say 'I don't know.' Always aim to be clear and to the point.\n\n"
+                    f"{context}\n\n"
+                    "In cases where you are answering questions related to song lyrics, poems, recipes, sheet music, or other short creative works: "
+                    "- Do not provide the full text in any form, whether directly or through transformations like translations or changes in structure. "
+                    "- Instead, provide brief summaries, analysis, or commentary, and include a link to the original source for further reading. "
+                    "Remember, the goal is to assist without directly repeating or regurgitating the content in full."
+                )
+            }
+        ]
+
+        # Extend the list with user-provided messages
+        chat_messages.extend(messages)
+
+        # Invoke the model with the constructed messages
+        ai_msg = chat_model.llm.invoke(chat_messages)
+
+        return {"content":ai_msg.content}
+
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred while processing the request: {str(e)}")
+
+
+# ----------------------------------- Document Manage Endpoints ----------------------#
+@app.post("/upload/")
+async def upload_document(file: UploadFile = File(...)):
+
+    try:
+        # Check if a document with the same filename already exists in the database
+        existing_document = collection.find_one({"filename": file.filename})
+        if existing_document:
+            raise HTTPException(status_code=400, detail=f"Document with filename '{file.filename}' already exists.")
+
+        document_text = ""
+
+        if file.filename.endswith('.pdf'):
+            # Extract text from PDF
+            with pdfplumber.open(BytesIO(await file.read())) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        document_text += page_text + "\n"
+
+            if not document_text.strip():
+                raise HTTPException(status_code=400, detail="Could not extract text from the PDF")
+
+        else:
+            # Read the file content directly for non-PDF files
+            content = await file.read()
+            document_text = content.decode("utf-8")  # Assuming UTF-8 encoding
+
+        # Split the document into chunks using LangChain's text splitter
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        chunks = text_splitter.split_text(document_text)
+
+        # Current timestamp
+        current_time = datetime.utcnow()
+
+        # Embed and store each chunk in MongoDB
+        for chunk in chunks:
+            if chunk.strip():  # Skip empty chunks
+                embedding = embeddings_model.embed_query(chunk)
+                collection.insert_one({
+                    "filename": file.filename,
+                    "text": chunk,
+                    "embedding": embedding,  # Embedding stored as a list
+                    "UploadedAt": current_time,
+                    "UpdatedAt": current_time
+                })
+
+        return {"message": f"File '{file.filename}' uploaded and processed successfully."}
+
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Unsupported file encoding. Only UTF-8 and PDFs are supported.")
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@app.put("/update/{filename}")
+async def update_document(filename: str, file: UploadFile = File(...)):
+    try:
+        # Check if the document exists
+        existing_document = collection.find_one({"filename": filename})
+        if not existing_document:
+            raise HTTPException(status_code=404, detail=f"No such document as '{filename}'")
+
+        # Delete the existing document chunks
+        collection.delete_many({"filename": filename})
+
+        # Extract and process the new content
+        document_text = ""
+        if file.filename.endswith('.pdf'):
+            # Extract text from PDF
+            with pdfplumber.open(BytesIO(await file.read())) as pdf:
+                for page in pdf.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        document_text += page_text + "\n"
+
+            if not document_text.strip():
+                raise HTTPException(status_code=400, detail="Could not extract text from the PDF")
+
+        else:
+            # Read the file content directly for non-PDF files
+            content = await file.read()
+            document_text = content.decode("utf-8")  # Assuming UTF-8 encoding
+
+        # Split the document into chunks using LangChain's text splitter
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+        chunks = text_splitter.split_text(document_text)
+
+        # Current timestamp for updating
+        updated_at = datetime.utcnow()
+
+        # Embed and store each chunk in MongoDB
+        for chunk in chunks:
+            if chunk.strip():  # Skip empty chunks
+                embedding = embeddings_model.embed_query(chunk)
+                collection.insert_one({
+                    "filename": filename,
+                    "text": chunk,
+                    "embedding": embedding,  # Replace with actual embedding call if needed
+                    "UploadedAt": existing_document.get("UploadedAt", updated_at),  # Retain original upload time
+                    "UpdatedAt": updated_at  # Update time set to now
+                })
+
+        return {"message": f"Document '{filename}' updated successfully."}
+
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Unsupported file encoding. Only UTF-8 and PDFs are supported.")
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/list/")
+async def list_documents():
+    documents = collection.distinct("filename")
+    return {"documents": documents}
+
+@app.delete("/delete/{filename}")
+async def delete_document(filename: str):
+    result = collection.delete_many({"filename": filename})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="File not found in the database")
+    return {"message": f"Documents with filename '{filename}' deleted successfully."}
