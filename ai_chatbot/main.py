@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, UploadFile, File, HTTPException,Request
+from fastapi import FastAPI, UploadFile, File, HTTPException,Body
 from pymongo import MongoClient
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings.openai import OpenAIEmbeddings
@@ -7,6 +7,7 @@ from io import BytesIO
 import pdfplumber
 from langchain.vectorstores import VectorStore
 from langchain_community.vectorstores import MongoDBAtlasVectorSearch
+from fastapi.middleware.cors import CORSMiddleware
 
 
 from dotenv import find_dotenv,load_dotenv
@@ -17,6 +18,15 @@ from typing import List, Dict
 
 # Initialize FastAPI app
 app = FastAPI()
+
+# Allow all origins or specific origins to make requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow only your Angular app's origin
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 
 
 _:bool=load_dotenv(find_dotenv())
@@ -40,16 +50,21 @@ async def list_available_models():
     db = client.rag_database
     collection = db['ai_models']
     
-    # Fetch the document containing available models
-    document = collection.find_one({}, {"available_models": 1})
+    # Fetch the document containing available models and the default model ID
+    document = collection.find_one({}, {"available_models": 1, "default_model": 1})
     
     if not document:
         raise HTTPException(status_code=404, detail="No models found in the collection")
     
-    # Return the available models list
+    # Extract data from the document
     available_models = document.get("available_models", [])
-    return {"available_models": available_models}
-
+    default_model = document.get("default_model")
+    
+    # Return the available models and the default model ID
+    return {
+        "available_models": available_models,
+        "default_model_id": default_model
+    }
 
 import openai
 
@@ -95,7 +110,7 @@ async def add_model(model: ModelItem):
     return {"message": "Model added successfully"}
 
 
-@app.delete("/models/remove")
+@app.delete("/models/remove/{model_id}")
 async def remove_model(model_id: str):
     db = client.rag_database
     collection = db['ai_models']
@@ -152,14 +167,18 @@ async def set_default_model(model_id: str):
 
 # Collection for RAG documents
 collection = db.document_vectors
+from datetime import datetime
+from fastapi import HTTPException
+from pymongo import UpdateOne
+
 @app.post("/chat/")
-async def chat_with_context(messages: List[dict[str,str]]):
+async def chat_with_context(messages: List[dict[str, str]], user_id: str):
     try:
         # Access AI Models collection
-        collection = db['ai_models']
+        ai_collection = db['ai_models']
 
         # Get the default model from the database
-        ai_model_data = collection.find_one({}, {"default_model": 1, "available_models": 1})
+        ai_model_data = ai_collection.find_one({}, {"default_model": 1, "available_models": 1})
         if not ai_model_data:
             raise HTTPException(status_code=404, detail="No default model found")
 
@@ -167,16 +186,10 @@ async def chat_with_context(messages: List[dict[str,str]]):
         default_model_id = ai_model_data.get("default_model")
         if not default_model_id:
             raise HTTPException(status_code=404, detail="No default model ID set in the database")
-        
-        # Extra security step
 
-        # # Check if the default model ID exists in available models
-        # available_models = ai_model_data.get("available_models", [])
-        # model_ids = [model['id'] for model in available_models]
-        # if default_model_id not in model_ids:
-        #     raise HTTPException(status_code=404, detail="Default model ID not found in available models")
+        chat_collection = db['user_conversations']
 
-        # Use the default model ID to initialize the chat model
+        # Initialize the chat model
         chat_model = OpenAIModel(model=default_model_id)
 
         # Get the content of the last message
@@ -184,7 +197,7 @@ async def chat_with_context(messages: List[dict[str,str]]):
         if not query:
             raise HTTPException(status_code=400, detail="Message is required")
 
-        # Create the VectorStore interface for MongoDB, pass appropriate collection name
+        # Create the VectorStore interface for MongoDB
         vector_search = MongoDBAtlasVectorSearch(
             collection=db['document_vectors'],
             embedding=embeddings_model,
@@ -192,10 +205,10 @@ async def chat_with_context(messages: List[dict[str,str]]):
         )
 
         # Perform similarity search
-        results=vector_search.similarity_search(query=query,k=6)
-        context=""
+        results = vector_search.similarity_search(query=query, k=6)
+        context = ""
         for result in results:
-            context+=result.page_content
+            context += result.page_content
 
         chat_messages = [
             {
@@ -220,17 +233,38 @@ async def chat_with_context(messages: List[dict[str,str]]):
         # Invoke the model with the constructed messages
         ai_msg = chat_model.llm.invoke(chat_messages)
 
-        return {"content":ai_msg.content}
+        # Store the conversation in the database
+        conversation = {
+            "user_id": user_id,
+            "conversation_on": datetime.now(),
+            "messages": [
+                {"role": "user", "content": query},
+                {"role": "assistant", "content": ai_msg.content}
+            ]
+        }
+
+        # Update the existing conversation or insert a new one
+        chat_collection.update_one(
+            {"user_id": user_id},
+            {
+                "$setOnInsert": {"conversation_on": conversation["conversation_on"]},
+                "$push": {"messages": {"$each": conversation["messages"]}}
+            },
+            upsert=True
+        )
+
+        return {"content": ai_msg.content}
 
     except Exception as e:
         print(f"An error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=f"An error occurred while processing the request: {str(e)}")
 
 
-# ----------------------------------- Document Manage Endpoints ----------------------#
-@app.post("/upload/")
-async def upload_document(file: UploadFile = File(...)):
 
+# ----------------------------------- Document Manage Endpoints ----------------------#
+@app.post("/upload")
+async def upload_document(file: UploadFile = File(...),apiKey:str=""):
+    collection = db.document_vectors
     try:
         # Check if a document with the same filename already exists in the database
         existing_document = collection.find_one({"filename": file.filename})
@@ -283,8 +317,9 @@ async def upload_document(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
     
 
-@app.put("/update/{filename}")
-async def update_document(filename: str, file: UploadFile = File(...)):
+@app.put("/update")
+async def update_document(filename: str=Body(...), apiKey:str=Body(...),file: UploadFile = File(...)):
+    collection = db.document_vectors
     try:
         # Check if the document exists
         existing_document = collection.find_one({"filename": filename})
@@ -326,7 +361,7 @@ async def update_document(filename: str, file: UploadFile = File(...)):
                 collection.insert_one({
                     "filename": filename,
                     "text": chunk,
-                    "embedding": embedding,  # Replace with actual embedding call if needed
+                    "embedding": embedding,
                     "UploadedAt": existing_document.get("UploadedAt", updated_at),  # Retain original upload time
                     "UpdatedAt": updated_at  # Update time set to now
                 })
@@ -340,10 +375,26 @@ async def update_document(filename: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/list/")
+@app.get("/list")
 async def list_documents():
-    documents = collection.distinct("filename")
-    return {"documents": documents}
+    # Querying the files collection to get unique documents based on filename and metadata
+    pipeline = [
+        {
+            "$group": {
+                "_id": "$filename",
+                "filename": {"$first": "$filename"},  # Retain the filename in the result
+                "UploadedAt": {"$first": "$UploadedAt"},  # Retain the first entry for each unique filename
+                "UpdatedAt": {"$first": "$UpdatedAt"},
+                "active": {"$first": "$active"} 
+            }
+        }
+    ]
+    
+    # Execute the aggregation pipeline
+    documents = collection.aggregate(pipeline)
+    
+    return {"documents": list(documents)}  # Convert the cursor to a list and return
+
 
 @app.delete("/delete/{filename}")
 async def delete_document(filename: str):
