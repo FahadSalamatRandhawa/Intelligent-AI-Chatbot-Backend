@@ -171,8 +171,8 @@ from datetime import datetime
 from fastapi import HTTPException
 from pymongo import UpdateOne
 
-@app.post("/chat/")
-async def chat_with_context(messages: List[dict[str, str]], user_id: str):
+@app.post("/chat")
+async def chat_with_context(messages: List[dict[str, str]]=Body(...), user_id: str=Body(...)):
     try:
         # Access AI Models collection
         ai_collection = db['ai_models']
@@ -259,6 +259,25 @@ async def chat_with_context(messages: List[dict[str, str]], user_id: str):
         print(f"An error occurred: {str(e)}")
         raise HTTPException(status_code=500, detail=f"An error occurred while processing the request: {str(e)}")
 
+
+@app.get("/conversations")
+async def get_all_conversations():
+    try:
+        # Access the user_conversations collection
+        chat_collection = db['user_conversations']
+
+        # Retrieve all conversations
+        conversations = list(chat_collection.find({}, {"_id": 0}))  # Exclude MongoDB's _id field for clean output
+
+        # If no conversations found, return an empty list
+        if not conversations:
+            return {"conversations": []}
+
+        return {"conversations": conversations}
+
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"An error occurred while fetching conversations: {str(e)}")
 
 
 # ----------------------------------- Document Manage Endpoints ----------------------#
