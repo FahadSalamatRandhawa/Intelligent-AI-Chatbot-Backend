@@ -1,5 +1,6 @@
 import os
-from fastapi import FastAPI, UploadFile, File, HTTPException,Body
+from os import getenv
+from fastapi import FastAPI, UploadFile, File, HTTPException,Body,Depends
 from pymongo import MongoClient
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.embeddings.openai import OpenAIEmbeddings
@@ -15,6 +16,12 @@ from ai_chatbot.Model__OpenAI import OpenAIModel
 
 from datetime import datetime
 from typing import List, Dict
+
+def DEP_verifyAPIKey(apiKey: str = Body(...)):
+    if getenv('API_KEY') != apiKey:
+        raise HTTPException(status_code=401, detail="Invalid API Key")
+
+    return True
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -282,7 +289,7 @@ async def get_all_conversations():
 
 # ----------------------------------- Document Manage Endpoints ----------------------#
 @app.post("/upload")
-async def upload_document(file: UploadFile = File(...),apiKey:str=""):
+async def upload_document(file: UploadFile = File(...),verify: None = Depends(DEP_verifyAPIKey)):
     collection = db.document_vectors
     try:
         # Check if a document with the same filename already exists in the database
@@ -337,7 +344,7 @@ async def upload_document(file: UploadFile = File(...),apiKey:str=""):
     
 
 @app.put("/update")
-async def update_document(filename: str=Body(...), apiKey:str=Body(...),file: UploadFile = File(...)):
+async def update_document(filename: str=Body(...), verify: None = Depends(DEP_verifyAPIKey),file: UploadFile = File(...)):
     collection = db.document_vectors
     try:
         # Check if the document exists
@@ -416,7 +423,7 @@ async def list_documents():
 
 
 @app.delete("/delete/{filename}")
-async def delete_document(filename: str):
+async def delete_document(filename: str,verify: None = Depends(DEP_verifyAPIKey)):
     result = collection.delete_many({"filename": filename})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="File not found in the database")
