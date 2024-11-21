@@ -422,8 +422,8 @@ async def list_documents():
     return {"documents": list(documents)}  # Convert the cursor to a list and return
 
 
-@app.delete("/delete/{filename}")
-async def delete_document(filename: str,verify: None = Depends(DEP_verifyAPIKey)):
+@app.delete("/delete")
+async def delete_document(filename: str=Body(...),verify: None = Depends(DEP_verifyAPIKey)):
     result = collection.delete_many({"filename": filename})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="File not found in the database")

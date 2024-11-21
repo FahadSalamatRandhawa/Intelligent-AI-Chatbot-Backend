@@ -2,11 +2,12 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { CONSTANTS } from '../../../constants';
+import { PopupComponent } from '../../component/popup.component';
 
 @Component({
   selector: 'app-conversation-viewer',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule,PopupComponent],
   template: `
     <div class="container bg-green-200 w-full">
       <div class="sidebar">
@@ -19,16 +20,19 @@ import { CONSTANTS } from '../../../constants';
           {{ conversation.user_id }}
         </div>
       </div>
-      <div class="content bg-white/80 ">
+      <div class="content h-full overflow-y-scroll bg-white/80 ">
         <h2 class=" mt-3 mb-5">Messages</h2>
         <div
           class="message"
           *ngFor="let message of selectedMessages"
-          [ngClass]="{ user: message.role === 'user', 'ai text-right text-white': message.role === 'ai' }"
+          [ngClass]="{ user: message.role === 'user', 'ai text-white bg-opacity-80 ': message.role === 'assistant' }"
         >
           {{ message.content }}
         </div>
       </div>
+
+      <!-- Reusable Popup Component -->
+      <app-popup [message]="errorMessage"></app-popup>
     </div>
   `,
   styles: [
@@ -85,7 +89,7 @@ import { CONSTANTS } from '../../../constants';
       }
 
       .message.ai {
-        background-color: #BA3D28;
+        background-color: #A53412;
         border: 1px solid #ccc;
       }
     `,
@@ -94,13 +98,14 @@ import { CONSTANTS } from '../../../constants';
 
 export class ConversationViewerComponent {
     
+  errorMessage: string = '';
 
     constructor(private http: HttpClient) { }  
     
     conversations:{  _id: string;
         user_id: string;
         conversation_on: string;
-        messages: {role: 'user' | 'ai';
+        messages: {role: 'user' | 'assistant';
             content: string;}[];}[] = [];
 
   selectedMessages: { role: string; content: string }[] = [];
@@ -119,7 +124,16 @@ export class ConversationViewerComponent {
           },
           (error) => {
             console.error('Error fetching documents:', error);  // Handle any error
+            this.showError('Error fetching conversations');
           }
     )
+  }
+  private showError(message: string): void {
+    this.errorMessage = message;
+
+    // Reset the error message after 2 seconds
+    setTimeout(() => {
+      this.errorMessage = '';
+    }, 2000);
   }
 }

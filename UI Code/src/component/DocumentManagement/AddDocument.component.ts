@@ -1,4 +1,3 @@
-
 import { Component, ElementRef, EventEmitter, Output, ViewChild } from '@angular/core';
 import { HttpClient  } from '@angular/common/http';
 import { HlmButtonDirective } from '@spartan-ng/ui-button-helm';
@@ -16,6 +15,7 @@ import { HlmLabelDirective } from '@spartan-ng/ui-label-helm';
 import { Button } from '../button.component';
 import { CONSTANTS } from '../../../constants';
 import { CommonModule } from '@angular/common';
+import { PopupComponent } from '../popup.component';
 
 @Component({
   selector: 'add-document',
@@ -35,10 +35,16 @@ import { CommonModule } from '@angular/common';
     HlmInputDirective,
     HlmButtonDirective,
     Button,
-    CommonModule
+    CommonModule,
+    PopupComponent
   ],
-  template: `
-    <hlm-dialog  class=" bg-[#D9D9D9]" >
+  template:
+  `
+  <div>
+<!-- Popup for success or error messages -->
+      <app-popup *ngIf="showPopupMessage" [message]="popupMessage" [duration]="2000"></app-popup>
+
+    <hlm-dialog class=" bg-[#D9D9D9]" >
       <button id="edit-profile" class=" gap-2 bg-[#A53412] hover:bg-[#A53412]/90 rounded-none" brnDialogTrigger hlmBtn>
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
           <g clip-path="url(#clip0_4_125)">
@@ -78,47 +84,64 @@ import { CommonModule } from '@angular/common';
 </ng-template>
 
     </hlm-dialog>
-  `,
+    </div>
+  `
 })
 export class AddDocument {
   @ViewChild('apikeyInput') apiKeyInput?: ElementRef<HTMLInputElement>;
   showDialog: boolean = true;  // To manage dialog visibility
   @Output() uploadSuccess = new EventEmitter<void>(); // EventEmitter to notify parent
+  popupMessage: string = ''; // Holds the message to be shown in the popup
+  showPopupMessage: boolean = false; // Controls popup visibility
 
   constructor(private http: HttpClient) {}
 
   handleUpload() {
     const apiKey = this.apiKeyInput?.nativeElement.value;
     this.uploadSuccess.emit();
+    
     // Check if API key is provided
     if (!apiKey) {
-      alert('API key is required');
+      this.showPopup('API key is required');
       return;
     }
+
     const fileInput = (document.getElementById('document') as HTMLInputElement).files?.[0];
-
     if (!fileInput) {
-      alert('File is missing');
+      this.showPopup('File is missing');
       return;
     }
-
 
     const formData = new FormData();
     formData.append('file', fileInput);
     formData.append('apiKey', apiKey);
 
-    this.http.post(CONSTANTS.API_URL+"/upload", formData).subscribe({
+    // Close the dialog before sending the API request
+    this.closeDialog()
+
+    this.http.post(CONSTANTS.API_URL + '/upload', formData).subscribe({
       next: (response) => {
         console.log('Upload successful:', response);
-        // Emit success event to parent component
-        // Close the dialog before sending the API request
-         this.showDialog =false;
+        this.showPopup('Upload successful');
       },
       error: (error) => {
         console.error('Upload failed:', error);
-        // Close the dialog before sending the API request
-        this.showDialog =false;
+        this.showPopup('NOOOOOOOOOOOOO');
       },
     });
+  }
+
+  private showPopup(message: string) {
+    this.popupMessage = message;
+    this.showPopupMessage = true;
+
+    // Hide the popup after the specified duration (2000ms)
+    setTimeout(() => {
+      this.showPopupMessage = false;
+    }, 2000);  // The popup will disappear after 2 seconds
+  }
+
+  private closeDialog(){
+    this.showDialog=false;
   }
 }

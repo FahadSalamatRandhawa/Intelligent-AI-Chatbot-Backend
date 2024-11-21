@@ -118,7 +118,7 @@ export class ChatboxComponent {
     if (this.userMessage.trim() === '') return;
 
     this.messages.push({ role: 'user', content: this.userMessage });
-    const chatBody = { messages: this.messages, user_id: '222cs2' };
+    const chatBody = { messages: this.messages, user_id: 'random_user_id_generated' };
 
     this.http.post<any>(CONSTANTS.API_URL+'/chat', chatBody).subscribe({
       next: (response) => {
