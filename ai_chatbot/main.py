@@ -211,6 +211,8 @@ async def chat_with_context(messages: List[dict[str, str]]=Body(...), user_id: s
             index_name="vector_search_index"
         )
 
+        print("Messages : ",messages)
+
         # Perform similarity search
         results = vector_search.similarity_search(query=query, k=6)
         context = ""
@@ -236,6 +238,8 @@ async def chat_with_context(messages: List[dict[str, str]]=Body(...), user_id: s
 
         # Extend the list with user-provided messages
         chat_messages.extend(messages)
+
+        print("Current messages being passed : ",chat_messages)
 
         # Invoke the model with the constructed messages
         ai_msg = chat_model.llm.invoke(chat_messages)

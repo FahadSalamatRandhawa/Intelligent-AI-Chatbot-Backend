@@ -60,6 +60,7 @@ import { CONSTANTS } from '../../../constants';
                 placeholder="Type your message"
               />
               <button
+                [disabled]="isProcessing"
                 (click)="sendMessage()"
                 class="flex h-[25px] w-[25px] scale-150 items-center justify-center text-center bg-[#d8623e] pb-1 rounded-full text-white"
               >
@@ -107,6 +108,7 @@ export class ChatboxComponent {
   isVisible = true;
   messages: { role: string; content: string }[] = [];
   userMessage = '';
+  isProcessing=false;
 
   constructor(private http: HttpClient) {}
 
@@ -118,16 +120,20 @@ export class ChatboxComponent {
     if (this.userMessage.trim() === '') return;
 
     this.messages.push({ role: 'user', content: this.userMessage });
-    const chatBody = { messages: this.messages, user_id: 'random_user_id_generated' };
+    const chatBody = { messages: this.messages, user_id: 'xxxxxxxx' };
 
+
+    this.isProcessing=true;
+    this.userMessage = '';
     this.http.post<any>(CONSTANTS.API_URL+'/chat', chatBody).subscribe({
       next: (response) => {
         this.messages.push({ role: 'ai', content: response.content });
-        this.userMessage = '';
+        this.isProcessing=false
 
       },
       error: (error) => {
         console.error('Error sending message:', error);
+        this.isProcessing=false
       },
     });
   }
