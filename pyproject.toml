@@ -16,6 +16,7 @@ langchain = "^0.3.7"
 pymongo = {extras = ["srv"], version = "^4.10.1"}
 langchain-community = "^0.3.7"
 pdfplumber = "^0.11.4"
+langchain-mongodb = "^0.2.0"
 
 
 [build-system]

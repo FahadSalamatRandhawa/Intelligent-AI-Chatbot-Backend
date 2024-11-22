@@ -17,6 +17,7 @@ import { Button } from '../button.component';
 import { AddModel } from './AddModel.component';
 import { HttpClient } from '@angular/common/http';
 import { CONSTANTS } from '../../../constants';
+import { NotificationService } from '../notification.component';
 
 @Component({
   selector: 'ManageModels',
@@ -88,19 +89,23 @@ import { CONSTANTS } from '../../../constants';
         </div>
 
         <!-- Dialog to add new Model -->
-          <AddModel (modelAddSuccess)="fetchModels()"/>
+          <AddModel (closeParent)="close(ctx)"/>
       </hlm-dialog-content>
     </hlm-dialog>
   `,
 })
 export class ManageModels {
-  constructor(private http: HttpClient) { }
+  constructor(private http: HttpClient, private notificationService: NotificationService) {}
   models:{name:string,id:string}[] = [
   ];
   default_model_id:string="";
 
   ngOnInit() {
     this.fetchModels()
+  }
+
+  close(ctx:any){
+    ctx.close()
   }
 
   deleteModel(id:string){
@@ -110,7 +115,7 @@ export class ManageModels {
         this.models = this.models.filter((model) => model.id !== id);
       },
       (error) => {
-        console.error('Error deleting model:', error);  // Handle any error during deletion
+        this.notificationService.showError(error.error.detail)
       }
     )
   }
@@ -122,10 +127,9 @@ export class ManageModels {
         this.models = data.available_models;
         this.default_model_id=data.default_model_id
 
-        console.log("Models fetched : ",data)
       },
       (error) => {
-        console.error('Error fetching models:', error);  // Handle any error during deletion
+        this.notificationService.showError(error.error.detail)
       }
     )
   }

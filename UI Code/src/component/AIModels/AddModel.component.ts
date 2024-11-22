@@ -7,6 +7,8 @@ import { HlmLabelDirective } from '@spartan-ng/ui-label-helm';
 import { HlmInputDirective } from '@spartan-ng/ui-input-helm';
 import { HlmButtonDirective } from '@spartan-ng/ui-button-helm';
 import { CONSTANTS } from '../../../constants';
+import { PopupComponent } from '../popup.component';
+import { NotificationService } from '../notification.component';
 
 @Component({
   selector: 'AddModel',
@@ -23,7 +25,7 @@ import { CONSTANTS } from '../../../constants';
     HlmLabelDirective,
     HlmInputDirective,
     HlmButtonDirective,
-    Button
+    Button,
   ],
   template: `
     <hlm-dialog class="bg-[#D9D9D9]">
@@ -47,18 +49,19 @@ import { CONSTANTS } from '../../../constants';
         </div>
 
         <hlm-dialog-footer class="w-full flex justify-center">
-          <Button class="w-full" type="submit" (onClick)="handleUpload()">Verify and Add</Button>
+          <Button class="w-full" type="submit" (onClick)="handleUpload(ctx)">Verify and Add</Button>
         </hlm-dialog-footer>
       </hlm-dialog-content>
+
     </hlm-dialog>
   `,
 })
 export class AddModel {
-  @Output() modelAddSuccess = new EventEmitter<void>(); // EventEmitter to notify parent
+  @Output() closeParent = new EventEmitter<void>(); // EventEmitter to notify parent
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient, private notificationService: NotificationService) {}
 
-  handleUpload() {
+  handleUpload(ctx: any) {
 
     // Get the values using document.getElementById
     const name = (document.getElementById('name') as HTMLInputElement).value;
@@ -75,16 +78,21 @@ export class AddModel {
       id: modelId,
     };
 
+    ctx.close()
+    this.closeParent.emit()
+
     // Send the API request
     this.http.post(CONSTANTS.API_URL+'/models/add', modelData)
       .subscribe({
         next: (response) => {
           console.log('Model added successfully:', response);
-          this.modelAddSuccess.emit()
+          this.notificationService.showSuccess('Model added successfully!');
         },
         error: (error) => {
-          console.error('Error adding model:', error);
+          console.error('Error adding model:', error.error.detail);
+          this.notificationService.showError(error.error.detail)
         },
       });
   }
+
 }

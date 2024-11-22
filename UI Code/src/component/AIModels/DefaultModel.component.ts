@@ -5,6 +5,7 @@ import { HttpClient } from '@angular/common/http';
 import { BrnSelectImports } from '@spartan-ng/ui-select-brain';
 import { HlmSelectImports } from '@spartan-ng/ui-select-helm';
 import { CONSTANTS } from '../../../constants';
+import { NotificationService } from '../notification.component';
 
 @Component({
   selector: 'DefaultModel',
@@ -27,7 +28,7 @@ export class DefaultModel {
   models: { name: string; id: string }[] = [];
   default_model_id: string = '';
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient,private notificationService: NotificationService) {}
 
   ngOnInit() {
     this.fetchModels();
@@ -53,10 +54,11 @@ export class DefaultModel {
   updateDefaultModel(newModelId: string) {
     this.http.put(`${CONSTANTS.API_URL}/models/set_default?model_id=${newModelId}`,{}).subscribe(
       (response) => {
-        console.log('Default model updated successfully:', response);
+        this.notificationService.showSuccess('Model updated successfully')
       },
       (error) => {
-        console.error('Error updating default model:', error);
+        console.error('Error updating default model:', error.error);
+        this.notificationService.showError(error.error.detail)
       }
     );
   }

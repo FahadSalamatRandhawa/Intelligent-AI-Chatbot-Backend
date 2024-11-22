@@ -15,6 +15,7 @@ import { HlmLabelDirective } from '@spartan-ng/ui-label-helm';
 import { Button } from '../button.component';
 import { CONSTANTS } from '../../../constants';
 import { CommonModule } from '@angular/common';
+import { NotificationService } from '../notification.component';
 
 @Component({
   selector: 'UpdateDocument',
@@ -52,8 +53,7 @@ import { CommonModule } from '@angular/common';
         </svg>
       </button>
 
-      <ng-template [ngIf]="showDialog">
-        <hlm-dialog-content class="sm:max-w-[425px] min-w-[350px]" *brnDialogContent="let ctx">
+        <hlm-dialog-content class="sm:max-w-[425px] min-w-[350px]" *  ="let ctx">
           <hlm-dialog-header>
             <h3 hlmDialogTitle>{{documentName}} Document</h3>
             <p hlmDialogDescription>Upload a document for the AI chatbot to use</p>
@@ -67,12 +67,13 @@ import { CommonModule } from '@angular/common';
               <label hlmLabel for="api">API Key</label>
               <input hlmInput #apikeyInput placeholder="Your API key here" type="password" id="api" class="col-span-3" />
             </div>
+
+                <p *ngIf="missingInfo" class=" text-red-400 px-2 py-2">{{missingInfo}}</p>
           </div>
           <hlm-dialog-footer>
-            <Button class="w-full" type="submit" (click)="handleUpload()">Upload</Button>
+            <Button class="w-full" type="submit" (click)="handleUpload(ctx)">Upload</Button>
           </hlm-dialog-footer>
         </hlm-dialog-content>
-      </ng-template>
     </hlm-dialog>
   `,
 })
@@ -82,44 +83,43 @@ export class UpdateDocument {
     @Input() documentName: string = 'Add'; // Input property for document name
     showDialog: boolean = true;  // To manage dialog visibility
     @Output() uploadSuccess = new EventEmitter<void>(); // EventEmitter to notify parent
+    missingInfo=""
   
-    constructor(private http: HttpClient) {}
-  
-    handleUpload() {
+    constructor(private http: HttpClient, private notificationService: NotificationService) {}
+
+    handleUpload(ctx:any) {
       const apiKey = this.apiKeyInput?.nativeElement.value;
       this.uploadSuccess.emit();
       // Check if API key is provided
-      if (!apiKey) {
-        alert('API key is required');
-        return;
-      }
 
-      const fileInput = (document.getElementById('document') as HTMLInputElement).files?.[0];
 
-    if (!fileInput) {
-      alert('File is missing');
+    if (!apiKey) {
+      this.missingInfo = 'API key is required'; // Update the missing info message
       return;
     }
 
+    const fileInput = (document.getElementById('document') as HTMLInputElement).files?.[0];
+
+    if (!fileInput) {
+      this.missingInfo = 'File is missing'; // Update the missing info message
+      return;
+    }
 
     const formData = new FormData();
     formData.append('file', fileInput);
     formData.append('apiKey', apiKey);
     formData.append('filename',this.documentName)
 
-    console.log(formData.get('apiKey'))
-
+    ctx.close()
     this.http.put(CONSTANTS.API_URL+`/update`, formData).subscribe({
       next: (response) => {
-        console.log('Upload successful:', response);
-        // Emit success event to parent component
-        // Close the dialog before sending the API request
-         this.showDialog =false;
+        this.notificationService.showSuccess("Document updated successfully")
+
       },
       error: (error) => {
-        console.error('Upload failed:', error);
-        // Close the dialog before sending the API request
-        this.showDialog =false;
+        console.error('Upload failed:', error.error.detail);
+        this.notificationService.showError(error.error.detail)
+
       },
     });
 

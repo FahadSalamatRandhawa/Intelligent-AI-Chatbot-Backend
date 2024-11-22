@@ -4,6 +4,7 @@ import { CONSTANTS } from '../../constants';
 import { CommonModule } from '@angular/common';
 import { UpdateDocument } from '../component/DocumentManagement/UpdateDocument.component';
 import { ApiKeyModalComponent } from '../component/apikey.component';
+import { NotificationService } from '../component/notification.component';
 
 @Component({
   selector: 'Documents',
@@ -51,8 +52,7 @@ export class Documents implements OnInit {
   showApiKeyModal = false;
   fileToDelete: string | null = null;
 
-  constructor(private http: HttpClient) {}
-
+  constructor(private http: HttpClient, private notificationService: NotificationService) {}
   ngOnInit() {
     this.fetchDocuments();
   }
@@ -63,7 +63,8 @@ export class Documents implements OnInit {
         this.documents = data.documents;
       },
       (error) => {
-        console.error('Error fetching documents:', error);
+        console.error('Error fetching documents:', error.error.detail);
+        this.notificationService.showError(error.error.detail)
       }
     );
   }
@@ -85,10 +86,12 @@ export class Documents implements OnInit {
         .subscribe(
           () => {
             this.documents = this.documents.filter((doc) => doc.filename !== this.fileToDelete);
+            this.notificationService.showSuccess(` ${this.fileToDelete} deleted successfully`)
             this.closeModal();
           },
           (error) => {
-            console.error('Error deleting document:', error);
+            console.error('Error deleting document:', error.error.detail);
+            this.notificationService.showError(error.error.detail)
           }
         );
     }

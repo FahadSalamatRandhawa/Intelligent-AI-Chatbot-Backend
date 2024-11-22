@@ -1,12 +1,19 @@
 import { Component } from '@angular/core';
 import { RouterOutlet, RouterLink } from '@angular/router';
+import { NotificationComponent, NotificationService } from '../component/notification.component';
+import { CommonModule } from '@angular/common';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, RouterLink],
+  imports: [RouterOutlet, RouterLink, CommonModule, NotificationComponent],
   template: `
     <div class="flex flex-col items-center min-h-screen w-full gap-6 p-6 bg-[#D9D9D9]">
+
+
+      <app-notification></app-notification>
+
+
       <!-- Navigation Bar -->
       <div class="flex gap-4">
         <button
@@ -48,5 +55,35 @@ import { RouterOutlet, RouterLink } from '@angular/router';
     </div>
     </div>
   `,
+  styles:[
+    `
+    .success {
+  background-color: #4caf50;
+  color: white;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 5px;
+}
+
+.error {
+  background-color: #f44336;
+  color: white;
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 5px;
+}
+
+    `
+  ]
 })
-export class AppComponent {}
+export class AppComponent {
+  constructor(private notificationService: NotificationService) {}
+
+  showSuccess() {
+    this.notificationService.showSuccess('Operation Successful');
+  }
+
+  showError() {
+    this.notificationService.showError('An error occurred');
+  }
+}

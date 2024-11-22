@@ -1,21 +1,17 @@
 import { Component, ElementRef, EventEmitter, Output, ViewChild } from '@angular/core';
 import { HttpClient  } from '@angular/common/http';
-import { HlmButtonDirective } from '@spartan-ng/ui-button-helm';
-import { BrnDialogContentDirective, BrnDialogTriggerDirective } from '@spartan-ng/ui-dialog-brain';
-import {
-  HlmDialogComponent,
-  HlmDialogContentComponent,
-  HlmDialogDescriptionDirective,
-  HlmDialogFooterComponent,
-  HlmDialogHeaderComponent,
-  HlmDialogTitleDirective,
-} from '@spartan-ng/ui-dialog-helm';
-import { HlmInputDirective } from '@spartan-ng/ui-input-helm';
-import { HlmLabelDirective } from '@spartan-ng/ui-label-helm';
 import { Button } from '../button.component';
 import { CONSTANTS } from '../../../constants';
 import { CommonModule } from '@angular/common';
 import { PopupComponent } from '../popup.component';
+import { NotificationService } from '../notification.component';
+
+import { BrnDialogContentDirective, BrnDialogTriggerDirective } from '@spartan-ng/ui-dialog-brain';
+import { HlmDialogComponent, HlmDialogContentComponent, HlmDialogDescriptionDirective, HlmDialogFooterComponent, HlmDialogHeaderComponent, HlmDialogTitleDirective } from '@spartan-ng/ui-dialog-helm';
+import { HlmLabelDirective } from '@spartan-ng/ui-label-helm';
+import { HlmInputDirective } from '@spartan-ng/ui-input-helm';
+import { HlmButtonDirective } from '@spartan-ng/ui-button-helm';
+
 
 @Component({
   selector: 'add-document',
@@ -40,9 +36,6 @@ import { PopupComponent } from '../popup.component';
   ],
   template:
   `
-  <div>
-<!-- Popup for success or error messages -->
-      <app-popup *ngIf="showPopupMessage" [message]="popupMessage" [duration]="2000"></app-popup>
 
     <hlm-dialog class=" bg-[#D9D9D9]" >
       <button id="edit-profile" class=" gap-2 bg-[#A53412] hover:bg-[#A53412]/90 rounded-none" brnDialogTrigger hlmBtn>
@@ -61,7 +54,6 @@ import { PopupComponent } from '../popup.component';
       </button>
 
 
-<ng-template [ngIf]="showDialog">
   <hlm-dialog-content class="sm:max-w-[425px] min-w-[350px]" *brnDialogContent="let ctx">
     <hlm-dialog-header>
       <h3 hlmDialogTitle>Add Document</h3>
@@ -76,72 +68,63 @@ import { PopupComponent } from '../popup.component';
         <label hlmLabel for="api">API Key</label>
         <input hlmInput #apikeyInput placeholder="Your API key here" type="password" id="api" class="col-span-3" />
       </div>
+
+      <p *ngIf="missingInfo" class=" text-red-400 px-2 py-2">{{missingInfo}}</p>
     </div>
     <hlm-dialog-footer>
-      <Button class="w-full" type="submit" (click)="handleUpload()">Upload</Button>
+      <Button class="w-full" type="submit" (click)="handleUpload(ctx)">Upload</Button>
     </hlm-dialog-footer>
   </hlm-dialog-content>
-</ng-template>
 
     </hlm-dialog>
-    </div>
   `
 })
 export class AddDocument {
   @ViewChild('apikeyInput') apiKeyInput?: ElementRef<HTMLInputElement>;
   showDialog: boolean = true;  // To manage dialog visibility
   @Output() uploadSuccess = new EventEmitter<void>(); // EventEmitter to notify parent
-  popupMessage: string = ''; // Holds the message to be shown in the popup
-  showPopupMessage: boolean = false; // Controls popup visibility
+  missingInfo: string = ''; // Initialize missingInfo as an empty string
 
-  constructor(private http: HttpClient) {}
 
-  handleUpload() {
+  constructor(private http: HttpClient, private notificationService: NotificationService) {}
+
+  handleUpload(ctx:any) {
     const apiKey = this.apiKeyInput?.nativeElement.value;
     this.uploadSuccess.emit();
     
     // Check if API key is provided
     if (!apiKey) {
-      this.showPopup('API key is required');
+      this.missingInfo = 'API key is required'; // Update the missing info message
       return;
     }
 
     const fileInput = (document.getElementById('document') as HTMLInputElement).files?.[0];
     if (!fileInput) {
-      this.showPopup('File is missing');
+      this.missingInfo = 'File is missing'; // Update the missing info message
       return;
     }
+
+    // Reset missingInfo message before proceeding
+    this.missingInfo = '';
 
     const formData = new FormData();
     formData.append('file', fileInput);
     formData.append('apiKey', apiKey);
 
-    // Close the dialog before sending the API request
-    this.closeDialog()
+    ctx.close()
 
+    // Make HTTP request to upload the file
     this.http.post(CONSTANTS.API_URL + '/upload', formData).subscribe({
       next: (response) => {
         console.log('Upload successful:', response);
-        this.showPopup('Upload successful');
+        this.notificationService.showSuccess('Upload successful');
       },
       error: (error) => {
-        console.error('Upload failed:', error);
-        this.showPopup('NOOOOOOOOOOOOO');
+        console.error('Upload failed:', error.error.detail);
+        this.notificationService.showError(error.error.detail);
       },
     });
   }
 
-  private showPopup(message: string) {
-    this.popupMessage = message;
-    this.showPopupMessage = true;
 
-    // Hide the popup after the specified duration (2000ms)
-    setTimeout(() => {
-      this.showPopupMessage = false;
-    }, 2000);  // The popup will disappear after 2 seconds
-  }
-
-  private closeDialog(){
-    this.showDialog=false;
-  }
 }

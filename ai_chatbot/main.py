@@ -3,11 +3,11 @@ from os import getenv
 from fastapi import FastAPI, UploadFile, File, HTTPException,Body,Depends
 from pymongo import MongoClient
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings.openai import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from io import BytesIO
 import pdfplumber
 from langchain.vectorstores import VectorStore
-from langchain_community.vectorstores import MongoDBAtlasVectorSearch
+from langchain_mongodb import MongoDBAtlasVectorSearch
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -211,10 +211,9 @@ async def chat_with_context(messages: List[dict[str, str]]=Body(...), user_id: s
             index_name="vector_search_index"
         )
 
-        print("Messages : ",messages)
 
         # Perform similarity search
-        results = vector_search.similarity_search(query=query, k=6)
+        results = vector_search.similarity_search(query=query, k=3)
         context = ""
         for result in results:
             context += result.page_content
@@ -389,7 +388,7 @@ async def update_document(filename: str=Body(...), verify: None = Depends(DEP_ve
             if chunk.strip():  # Skip empty chunks
                 embedding = embeddings_model.embed_query(chunk)
                 collection.insert_one({
-                    "filename": filename,
+                    "filename": file.filename,
                     "text": chunk,
                     "embedding": embedding,
                     "UploadedAt": existing_document.get("UploadedAt", updated_at),  # Retain original upload time

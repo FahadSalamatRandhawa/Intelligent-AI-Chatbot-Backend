@@ -3,11 +3,13 @@ import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { FormsModule } from '@angular/forms'; // Import FormsModule for ngModel
 import { CONSTANTS } from '../../../constants';
+import { PopupComponent } from '../popup.component';
+import { NotificationService } from '../notification.component';
 
 @Component({
   selector: 'ChatBox',
   standalone: true,
-  imports: [CommonModule, FormsModule], // Add FormsModule here
+  imports: [CommonModule, FormsModule,PopupComponent], // Add FormsModule here
   template: `
     <div class="flex items-center justify-center p-12 absolute bottom-0 right-0">
       <div class="w-full">
@@ -46,7 +48,7 @@ import { CONSTANTS } from '../../../constants';
             <div
               *ngFor="let message of messages"
               class="my-2 p-2 rounded border border-gray-300 w-full"
-              [ngClass]="{ ' bg-[#A53412]/90 text-white rounded-sm ': message.role === 'ai', 'bg-gray-200 rounded-sm ': message.role === 'user' }"
+              [ngClass]="{ ' bg-[#A53412]/90 text-white rounded-sm ': message.role === 'assistant', 'bg-gray-200 rounded-sm ': message.role === 'user' }"
             >
               {{ message.content }}
             </div>
@@ -57,8 +59,11 @@ import { CONSTANTS } from '../../../constants';
                 [(ngModel)]="userMessage"
                 id="message"
                 class="w-full p-2 border border-black/70 rounded-sm"
+                [disabled]="isProcessing"
+                [ngClass]="{ 'processing-class': isProcessing }"
                 placeholder="Type your message"
               />
+
               <button
                 [disabled]="isProcessing"
                 (click)="sendMessage()"
@@ -86,6 +91,7 @@ import { CONSTANTS } from '../../../constants';
           </button>
         </div>
       </div>
+
     </div>
   `,
   styles: [
@@ -109,8 +115,9 @@ export class ChatboxComponent {
   messages: { role: string; content: string }[] = [];
   userMessage = '';
   isProcessing=false;
+  errorMessage=""
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient,private notificationService: NotificationService) {}
 
   toggleChatbox() {
     this.isVisible = !this.isVisible;
@@ -127,14 +134,15 @@ export class ChatboxComponent {
     this.userMessage = '';
     this.http.post<any>(CONSTANTS.API_URL+'/chat', chatBody).subscribe({
       next: (response) => {
-        this.messages.push({ role: 'ai', content: response.content });
+        this.messages.push({ role: 'assistant', content: response.content });
         this.isProcessing=false
 
       },
       error: (error) => {
-        console.error('Error sending message:', error);
         this.isProcessing=false
+        this.notificationService.showError('Uhoh, could not connect to service')
       },
     });
   }
+
 }
